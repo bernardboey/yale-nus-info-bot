@@ -2,6 +2,8 @@ import datetime
 import textwrap
 from typing import List
 
+SG_TZ = datetime.timezone(offset=datetime.timedelta(hours=8))
+
 
 class MealCategory:
     def __init__(self, name: str, items: str):
@@ -83,15 +85,21 @@ class Meal:
 
 
 class Menu:
-    def __init__(self, date: datetime.datetime, day: str):
-        self.date = date
+    def __init__(self, day: str, datetime_: datetime.datetime = None):
         self.day = day
+        self.datetime = datetime_
         self.meals: List[Meal] = []
 
+    def __str__(self):
+        return f"Menu() for {self.day} ({self.datetime.date() if self.datetime else 'No date'})"
+
     def __repr__(self):
-        return (f"Menu(date={self.date}, day={self.day}, meals=[\n" +
+        return (f"Menu(day={self.day}, date={self.datetime.date() if self.datetime else None}, meals=[\n" +
                 ",\n".join(textwrap.indent(repr(meal), "  ") for meal in self.meals) +
                 "\n])")
+
+    def set_date(self, date: datetime.date):
+        self.datetime = datetime.datetime.combine(date, datetime.time.min, tzinfo=SG_TZ)
 
     def add_meal(self, meal: Meal):
         self.meals.append(meal)
@@ -104,4 +112,4 @@ class Menu:
         return menu
 
     def to_dict(self):
-        return {"date": self.date, "day": self.day, "meals": [meal.to_dict() for meal in self.meals]}
+        return {"date": self.datetime, "day": self.day, "meals": [meal.to_dict() for meal in self.meals]}
