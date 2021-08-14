@@ -1,4 +1,4 @@
-from bs4 import BeautifulSoup
+import bs4
 import requests
 
 from menu import MealCategory, MealType, Meal, Menu
@@ -17,10 +17,10 @@ class MenuScraper:
 
     def __init__(self):
         response = requests.get(self.URL, headers=self.headers)
-        self.soup = BeautifulSoup(response.text, "html.parser")
+        self.soup = bs4.BeautifulSoup(response.text, "html.parser")
 
     @staticmethod
-    def get_meal_type_from_table(table, name):
+    def get_meal_type_from_table(table: bs4.element.Tag, name: str):
         meal_type = MealType(name)
         category_name = "No category"
         for tr in table.find_all("tr"):

@@ -1,6 +1,5 @@
 import datetime
 import textwrap
-from typing import List
 
 SG_TZ = datetime.timezone(offset=datetime.timedelta(hours=8))
 
@@ -34,7 +33,7 @@ class MealType:
             name: String representing the type name (e.g. "Bento" / "Buffet" / "Set Meal" / "Grab & Go")
         """
         self.name = name
-        self.categories: List[MealCategory] = []
+        self.categories: list[MealCategory] = []
 
     def __repr__(self):
         return (f"MealType(name='{self.name}', categories=[\n" +
@@ -63,7 +62,7 @@ class Meal:
             name: String representing the meal name (e.g. "Brunch" / "Breakfast" / "Lunch" / "Dinner")
         """
         self.name = name
-        self.types: List[MealType] = []
+        self.types: list[MealType] = []
 
     def __repr__(self):
         return (f"Meal(name={self.name}, types=[\n" +
@@ -88,7 +87,7 @@ class Menu:
     def __init__(self, day: str, datetime_: datetime.datetime = None):
         self.day = day
         self.datetime = datetime_
-        self.meals: List[Meal] = []
+        self.meals: list[Meal] = []
 
     def __str__(self):
         return f"Menu() for {self.day} ({self.datetime.date() if self.datetime else 'No date'})"
@@ -105,8 +104,8 @@ class Menu:
         self.meals.append(meal)
 
     @classmethod
-    def parse_from_dict(cls, d):
-        menu = cls(d["date"], d["day"])
+    def parse_from_dict(cls, d: dict):
+        menu = cls(day=d["day"], datetime_=d["date"])
         for meal in d["meals"]:
             menu.add_meal(Meal.parse_from_dict(meal))
         return menu
