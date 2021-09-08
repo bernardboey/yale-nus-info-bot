@@ -1,58 +1,102 @@
-import bs4
-import requests
+import datetime
+import os
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.remote.webelement import WebElement
 
 from menu import MealCategory, MealType, Meal, Menu
 
-DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-DAY_TO_TABS = {day: f"tab{i}" for i, day in enumerate(DAYS, start=1)}
-
 
 class MenuScraper:
-    URL = "https://studentlife.yale-nus.edu.sg/dining-experience/daily-dining-menu/"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/92.0.4515.131 Safari/537.36"
-    }
+    URL = "https://satscampuseats.yale-nus.edu.sg/our-food"
+    USERNAME = os.environ.get("NUSNET_1")
+    PASSWORD = os.environ.get("NUSNET_PASSWORD_1")
 
     def __init__(self):
-        response = requests.get(self.URL, headers=self.headers)
-        self.soup = bs4.BeautifulSoup(response.text, "html.parser")
+        chrome_options = Options()
+        # chrome_options.add_argument("--headless")
+        self.driver = webdriver.Chrome(chrome_options=chrome_options)
+        self.driver.implicitly_wait(5)
+        self.login()
+
+    def login(self):
+        self.driver.get(self.URL)
+
+        # All HTML elements start with e. For example, e_log_in represents the log_in element.
+
+        e_log_in = self.driver.find_element_by_xpath("//button")
+        e_log_in.click()
+
+        e_username = self.driver.find_element_by_id("userNameInput")
+        e_username.send_keys(f"nusstu\\{self.USERNAME}")
+
+        e_password = self.driver.find_element_by_id("passwordInput")
+        e_password.send_keys(self.PASSWORD)
+
+        e_sign_in = self.driver.find_element_by_id("submitButton")
+        e_sign_in.click()
+
+        e_our_food = self.driver.find_element_by_xpath("//header//ul//button")
+        e_our_food.click()
+
+    def get_all_date_buttons(self):
+        e_date_buttons = self.driver.find_elements_by_xpath(f"//div[contains(@class,'MuiTabs-scroller')]//button")
+        # Exclude first element because it represents the "Today" date button.
+        return e_date_buttons[1:]
+
+    def get_available_dates(self):
+        return [self.get_date_from_button_element(e_date_button) for e_date_button in self.get_all_date_buttons()]
 
     @staticmethod
-    def get_meal_type_from_table(table: bs4.element.Tag, name: str):
-        meal_type = MealType(name)
-        category_name = "No category"
-        for tr in table.find_all("tr"):
-            tds = tr.find_all("td")
-            if len(tds) == 2:
-                category_name = tds[0].get_text()
-            items = tds[-1].get_text()
-            meal_type.add_category(MealCategory(category_name, items))
-            if len(tds) > 2:
-                raise ValueError("Error: More than 2 columns")
-        return meal_type
+    def get_date_from_button_element(e_date_button: WebElement):
+        date_string = e_date_button.text.split("\n")[1]
+        return datetime.datetime.strptime(date_string, "%d %b %Y").date()
 
-    def get_day_menu(self, day: str):
-        menu = Menu(day)
-        tab = self.soup.find("div", id=DAY_TO_TABS[day])
-        meals_soup = tab.find_all("div", class_="menu-list")
-        for meal_soup in meals_soup:
-            meal_name = meal_soup.find("h4").get_text().title()
-            meal = Meal(meal_name)
-            tables = meal_soup.find_all("table")
-            meal.add_type(self.get_meal_type_from_table(tables[0], "Bento"))
-            if len(tables) == 2:
-                meal.add_type(self.get_meal_type_from_table(tables[1], "Grab & Go"))
-            if len(tables) > 2:
-                raise ValueError("Error: More than 2 tables")
-            menu.add_meal(meal)
-        return menu
+    def select_date(self, date: datetime.date):
+        for e_date_button in self.get_all_date_buttons():
+            if self.get_date_from_button_element(e_date_button) == date:
+                e_date_button.click()
+                return
+        raise ValueError(f"Date unavailable: {date}")
 
-    def get_week_menu(self):
+    def get_all_menus(self):
+        menus = []
+        for date in self.get_available_dates():
+            self.select_date(date)
+            menu = self.get_day_menu()
+            menu.set_date(date)
+            menus.append(menu)
+        return menus
+
+    def get_menu_for_date(self, date: datetime.date):
+        self.select_date(date)
+        menu = self.get_day_menu()
+        menu.set_date(date)
+
+    def get_day_menu(self) -> Menu:
         """
+
+        Will return the menu that is currently displayed in the browser. This is dependent on what date was selected
+        (using self.select_date(date)). If no date was selected, today's menu will be returned as that is the default
+        menu that is displayed on the website.
 
         Returns:
-            A list of Menu objects for each day of the week.
+
         """
-        return [self.get_day_menu(day) for day in DAYS]
+        menu = Menu()
+        e_meal_sections = self.driver.find_elements_by_xpath("//div[@id='root']/div/div/div/div/div/div[3]/div/div")
+        for e_meal_section in e_meal_sections[1:]:
+            e_meal_name = e_meal_section.find_element_by_tag_name("h2")
+            meal = Meal(e_meal_name.text)
+            menu.add_meal(meal)
+            e_meal_types = e_meal_section.find_elements_by_xpath("div")
+            for e_meal_type in e_meal_types:
+                e_meal_type_name = e_meal_type.find_element_by_tag_name("h3")
+                meal_type = MealType(e_meal_type_name.text)
+                meal.add_type(meal_type)
+                e_meal_categories = e_meal_type.find_elements_by_xpath("div[2]/div/div")
+                for e_meal_category in e_meal_categories:
+                    meal_category = MealCategory(e_meal_category.text)
+                    meal_type.add_category(meal_category)
+        return menu

@@ -1,6 +1,6 @@
 import datetime
 
-import firebase
+import database
 from menu import Menu
 import menu_scraper
 
@@ -17,73 +17,82 @@ def get_next_monday():
     return monday
 
 
-def get_week_menus(monday: datetime.date):
+def get_all_dates_for_week(monday: datetime.date):
+    return [monday + datetime.timedelta(days=i) for i in range(7)]
+
+
+def _get_week_menus(monday: datetime.date):
     menus = []
-    for i in range(7):
-        date = monday + datetime.timedelta(days=i)
-        menu_dict = firebase.get_menu(date)
-        menu = Menu.parse_from_dict(menu_dict) if menu_dict else None
+    for date in get_all_dates_for_week(monday):
+        menu = database.get_menu(date)
         menus.append(menu)
     return menus
 
 
 def get_current_week_menus():
-    return get_week_menus(get_current_week_monday())
+    return _get_week_menus(get_current_week_monday())
 
 
 def get_next_week_menus():
-    return get_week_menus(get_next_monday())
+    return _get_week_menus(get_next_monday())
+
+
+def scrape_all_menus():
+    return menu_scraper.MenuScraper().get_all_menus()
+
+
+def _scrape_week_menus(monday: datetime.date):
+    return [menu_scraper.MenuScraper().get_menu_for_date(date) for date in get_all_dates_for_week(monday)]
 
 
 def scrape_current_week_menus():
-    return menu_scraper.MenuScraper().get_week_menu()
+    return _scrape_week_menus(get_current_week_monday())
 
 
-def menus_are_equal(old_menus: list[Menu], new_menus: list[Menu]):
-    for old_menu, new_menu in zip(old_menus, new_menus):
-        if old_menu is None:
-            return False
-        if old_menu.to_dict() != new_menu.to_dict():
-            return False
-    return True
-
-
-def set_dates(menus: list[Menu], monday: datetime.date):
-    for i, menu in enumerate(menus):
-        date = monday + datetime.timedelta(days=i)
-        menu.set_date(date)
-
-
-def set_current_week_dates(menus: list[Menu]):
-    set_dates(menus, get_current_week_monday())
-
-
-def set_next_week_dates(menus: list[Menu]):
-    set_dates(menus, get_next_monday())
+def scrape_next_week_menus():
+    return _scrape_week_menus(get_next_monday())
 
 
 def _upload_menus(menus: list[Menu]):
     for menu in menus:
-        firebase.insert_menu(menu.to_dict())
+        database.insert_menu(menu)
 
 
-def scrape_menus_and_upload():
-    current_week_menus = get_current_week_menus()
-    next_week_menus = get_next_week_menus()
-    scraped_menus = scrape_current_week_menus()
+def check_whether_menus_are_different(scraped_menu: Menu, uploaded_menu: Menu):
+    if scraped_menu != uploaded_menu:
+        raise RuntimeError(f"Scraped menu is different from uploaded menu for {scraped_menu.datetime}.\n"
+                           f"Scraped menu:\n"
+                           f"{scraped_menu}\n"
+                           f"Uploaded menu:\n"
+                           f"{uploaded_menu}\n")
 
-    # Check if next week menus are missing
-    if None in next_week_menus:
-        # Check if current week menus differ from scraped menus or are missing
-        if not menus_are_equal(current_week_menus, scraped_menus):
-            # Check if today is Sunday
-            if datetime.date.today().weekday() == 7:
-                set_next_week_dates(scraped_menus)
-            else:
-                set_current_week_dates(scraped_menus)
-            _upload_menus(scraped_menus)
+
+def scrape_current_week_menus_and_upload(overwrite=False):
+    validate_menus_and_upload(scrape_current_week_menus(), get_current_week_menus(), overwrite)
+
+
+def scrape_next_week_menus_and_upload(overwrite=False):
+    validate_menus_and_upload(scrape_next_week_menus(), get_next_week_menus(), overwrite)
+
+
+def validate_menus_and_upload(scraped_menus, uploaded_menus, overwrite=False):
+    if None in uploaded_menus or overwrite:
+        _upload_menus(scraped_menus)
     else:
-        # Check if next week menus differ from scraped menus or are missing
-        if not menus_are_equal(next_week_menus, scraped_menus):
-            set_next_week_dates(scraped_menus)
-            _upload_menus(scraped_menus)
+        for scraped_menu, uploaded_menu in zip(scraped_menus, uploaded_menus):
+            check_whether_menus_are_different(scraped_menu, uploaded_menu)
+
+
+def scrape_all_menus_and_upload(overwrite=False):
+    scraped_menus = scrape_all_menus()
+    for scraped_menu in scraped_menus:
+        date = scraped_menu.datetime
+        uploaded_menu = database.get_menu(date)
+        if uploaded_menu and not overwrite:
+            if scraped_menu != uploaded_menu:
+                check_whether_menus_are_different(scraped_menu, uploaded_menu)
+        else:
+            database.insert_menu(scraped_menu)
+
+
+scrape_all_menus_and_upload()
